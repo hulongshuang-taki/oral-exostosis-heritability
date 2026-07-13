@@ -1,0 +1,275 @@
+# Heritability and sex-specific transmission analyses.
+# The tetrachoric estimate is the primary analysis; the Falconer estimate is
+# retained as a sensitivity analysis. Requires the polycor package.
+
+# ① 读取数据 + 强制重建binary变量
+df <- read.csv("df_final_corrected.csv",
+               fileEncoding = "UTF-8", stringsAsFactors = FALSE)
+cat("总行数：", nrow(df), "\n")
+
+df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
+df$tori_parent_bin <- as.integer(df$tori_parent == "1. あり")
+df$sex_child_bin   <- as.integer(df$sex_child   == "F")  # F=1, M=0
+df$relation_bin    <- as.integer(df$relation    == "母") # 母=1, 父=0
+df$pair_type <- paste(
+  ifelse(df$relation  == "母", "Mother", "Father"),
+  ifelse(df$sex_child == "F",  "Daughter", "Son"),
+  sep = "-"
+)
+
+# 编码确认
+cat("\n--- 编码确认 ---\n")
+cat("tori_child_bin:\n");  print(table(df$tori_child,  df$tori_child_bin,  useNA="always"))
+cat("tori_parent_bin:\n"); print(table(df$tori_parent, df$tori_parent_bin, useNA="always"))
+
+# ============================================================
+# ② Falconer Liability Threshold Model
+# 公式：h² = 2 × r_falconer
+# r_falconer = (K_R - K_o) × t_p / (z_p × (1 - K_o))
+#   K_p = 亲代患病率，K_o = 子代患病率
+#   K_R = 亲代患病者中子代患病率（conditional prevalence）
+#   t_p = qnorm(1 - K_p)，z_p = dnorm(t_p)
+# Bootstrap在pair层面重抽（保持亲子对配对关系）
+# ============================================================
+falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
+  valid  <- !is.na(parent_bin) & !is.na(child_bin)
+  p_vec  <- parent_bin[valid]
+  o_vec  <- child_bin[valid]
+  n      <- sum(valid)
+
+  K_p <- mean(p_vec)
+  K_o <- mean(o_vec)
+
+  # 边界检查：患病率过极端时Falconer公式失效
+  if (K_p <= 0 || K_p >= 1 || K_o <= 0 || K_o >= 1) {
+    cat(sprintf("警告：%s 患病率超出范围（K_p=%.3f, K_o=%.3f），跳过\n",
+                label, K_p, K_o))
+    return(data.frame(group=label, n=n, K_parent=NA, K_offspring=NA,
+                      r_falconer=NA, h2=NA, CI_low=NA, CI_high=NA))
+  }
+
+  t_p <- qnorm(1 - K_p)
+  z_p <- dnorm(t_p)
+  K_R <- mean(o_vec[p_vec == 1])  # 亲代有时子代患病率
+
+  r  <- (K_R - K_o) * t_p / (z_p * (1 - K_o))
+  h2 <- 2 * r
+
+  # Bootstrap（pair层面重抽，保持亲子配对）
+  h2_boot <- replicate(n_boot, {
+    idx   <- sample(n, n, replace = TRUE)
+    p_b   <- p_vec[idx]; o_b <- o_vec[idx]
+    K_p_b <- mean(p_b);  K_o_b <- mean(o_b)
+    if (K_p_b <= 0 || K_p_b >= 1 ||
+        K_o_b <= 0 || K_o_b >= 1 ||
+        sum(p_b == 1) == 0) return(NA)
+    t_b   <- qnorm(1 - K_p_b)
+    z_b   <- dnorm(t_b)
+    K_R_b <- mean(o_b[p_b == 1])
+    2 * (K_R_b - K_o_b) * t_b / (z_b * (1 - K_o_b))
+  })
+  h2_boot <- h2_boot[!is.na(h2_boot)]
+
+  data.frame(
+    group       = label,
+    n           = n,
+    K_parent    = round(K_p * 100, 1),
+    K_offspring = round(K_o * 100, 1),
+    r_falconer  = round(r,  4),
+    h2          = round(h2, 4),
+    CI_low      = round(quantile(h2_boot, 0.025), 4),
+    CI_high     = round(quantile(h2_boot, 0.975), 4),
+    stringsAsFactors = FALSE
+  )
+}
+
+# ============================================================
+# ③ Tetrachoric相关法
+# h² = 2 × r_tetrachoric
+# CI：基于polychor()返回的SE，delta法传播
+# ============================================================
+library(polycor)
+
+tetra_h2 <- function(parent_bin, child_bin, label = "") {
+  valid <- !is.na(parent_bin) & !is.na(child_bin)
+  p_f   <- factor(parent_bin[valid], levels = c(0, 1))
+  o_f   <- factor(child_bin[valid],  levels = c(0, 1))
+  n     <- sum(valid)
+
+  tryCatch({
+    res     <- polychor(p_f, o_f, std.err = TRUE)
+    r       <- res$rho
+    se      <- sqrt(res$var[1, 1])
+    h2      <- 2 * r
+    CI_low  <- 2 * (r - 1.96 * se)
+    CI_high <- 2 * (r + 1.96 * se)
+    data.frame(group=label, n=n,
+               r_tetra=round(r, 4), h2=round(h2, 4),
+               CI_low=round(CI_low, 4), CI_high=round(CI_high, 4),
+               stringsAsFactors=FALSE)
+  }, error = function(e) {
+    cat(sprintf("警告：%s Tetrachoric失败 - %s\n", label, e$message))
+    data.frame(group=label, n=n,
+               r_tetra=NA, h2=NA, CI_low=NA, CI_high=NA,
+               stringsAsFactors=FALSE)
+  })
+}
+
+# ============================================================
+# ④ Z检验函数（比较两个h²）
+# SE近似 = (CI_high - CI_low) / (2 × 1.96)
+# ============================================================
+z_test_h2 <- function(h2_a, h2_b) {
+  se_a <- (h2_a$CI_high - h2_a$CI_low) / (2 * 1.96)
+  se_b <- (h2_b$CI_high - h2_b$CI_low) / (2 * 1.96)
+  Z    <- (h2_a$h2 - h2_b$h2) / sqrt(se_a^2 + se_b^2)
+  p    <- 2 * pnorm(-abs(Z))
+  list(Z = round(Z, 3), p = round(p, 4))
+}
+
+# ============================================================
+# ⑤ 运行：定义分组索引
+# ============================================================
+idx_mother   <- df$relation  == "母"
+idx_father   <- df$relation  == "父"
+idx_daughter <- df$sex_child == "F"
+idx_son      <- df$sex_child == "M"
+pair_types   <- c("Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
+
+# ============================================================
+# ⑥ 运行Falconer
+# ============================================================
+cat("\n--- Falconer法（Bootstrap 1000次，请稍候）---\n")
+set.seed(42)  # 全局设置，保证所有分组Bootstrap可复现
+f_overall  <- falconer_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
+f_mother   <- falconer_h2(df$tori_parent_bin[idx_mother],   df$tori_child_bin[idx_mother],   "Mother")
+f_father   <- falconer_h2(df$tori_parent_bin[idx_father],   df$tori_child_bin[idx_father],   "Father")
+f_daughter <- falconer_h2(df$tori_parent_bin[idx_daughter], df$tori_child_bin[idx_daughter], "Female offspring")
+f_son      <- falconer_h2(df$tori_parent_bin[idx_son],      df$tori_child_bin[idx_son],      "Male offspring")
+
+f_pairs <- lapply(pair_types, function(pt) {
+  idx <- df$pair_type == pt
+  if (sum(idx) < 50) return(NULL)
+  falconer_h2(df$tori_parent_bin[idx], df$tori_child_bin[idx], pt)
+})
+
+h2_falconer <- do.call(rbind, c(
+  list(f_overall, f_mother, f_father, f_daughter, f_son),
+  f_pairs[!sapply(f_pairs, is.null)]
+))
+cat("\n=== Falconer结果 ===\n"); print(h2_falconer)
+
+# ============================================================
+# ⑦ 运行Tetrachoric
+# ============================================================
+cat("\n--- Tetrachoric法 ---\n")
+t_overall  <- tetra_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
+t_mother   <- tetra_h2(df$tori_parent_bin[idx_mother],   df$tori_child_bin[idx_mother],   "Mother")
+t_father   <- tetra_h2(df$tori_parent_bin[idx_father],   df$tori_child_bin[idx_father],   "Father")
+t_daughter <- tetra_h2(df$tori_parent_bin[idx_daughter], df$tori_child_bin[idx_daughter], "Female offspring")
+t_son      <- tetra_h2(df$tori_parent_bin[idx_son],      df$tori_child_bin[idx_son],      "Male offspring")
+
+t_pairs <- lapply(pair_types, function(pt) {
+  idx <- df$pair_type == pt
+  tetra_h2(df$tori_parent_bin[idx], df$tori_child_bin[idx], pt)
+})
+
+h2_tetra <- do.call(rbind, c(
+  list(t_overall, t_mother, t_father, t_daughter, t_son),
+  t_pairs
+))
+cat("\n=== Tetrachoric结果 ===\n"); print(h2_tetra)
+
+# ============================================================
+# ⑧ Z检验：母系 vs 父系、女性子代 vs 男性子代
+# 注意：用Tetrachoric结果（主方法）
+# ============================================================
+cat("\n--- Z检验 ---\n")
+z_parent   <- z_test_h2(t_mother,   t_father)
+z_offspring <- z_test_h2(t_daughter, t_son)
+
+cat(sprintf("母系(%.4f) vs 父系(%.4f)：Z=%.3f, p=%.4f\n",
+            t_mother$h2, t_father$h2, z_parent$Z, z_parent$p))
+cat(sprintf("女性子代(%.4f) vs 男性子代(%.4f)：Z=%.3f, p=%.4f\n",
+            t_daughter$h2, t_son$h2, z_offspring$Z, z_offspring$p))
+
+z_result <- data.frame(
+  comparison = c("Mother vs Father", "Female vs Male offspring"),
+  h2_A       = c(t_mother$h2,   t_daughter$h2),
+  h2_B       = c(t_father$h2,   t_son$h2),
+  Z          = c(z_parent$Z,    z_offspring$Z),
+  p_value    = c(z_parent$p,    z_offspring$p),
+  significant = c(z_parent$p < 0.05, z_offspring$p < 0.05),
+  stringsAsFactors = FALSE
+)
+print(z_result)
+
+# ============================================================
+# ⑨ LRT似然比检验（性别特异性遗传）
+# 模型A（基础）vs B（+ 子代性别交互）vs C（+ 亲代性别交互）vs D（双交互）
+# ============================================================
+cat("\n--- LRT似然比检验 ---\n")
+
+glm_base     <- glm(tori_child_bin ~ tori_parent_bin + sex_child_bin + relation_bin + age_child,
+                    data=df, family=binomial())
+glm_int_sex  <- glm(tori_child_bin ~ tori_parent_bin * sex_child_bin + relation_bin + age_child,
+                    data=df, family=binomial())
+glm_int_rel  <- glm(tori_child_bin ~ tori_parent_bin * relation_bin + sex_child_bin + age_child,
+                    data=df, family=binomial())
+glm_int_both <- glm(tori_child_bin ~ tori_parent_bin * sex_child_bin +
+                      tori_parent_bin * relation_bin + age_child,
+                    data=df, family=binomial())
+
+lrt_sex  <- anova(glm_base, glm_int_sex,  test="LRT")
+lrt_rel  <- anova(glm_base, glm_int_rel,  test="LRT")
+lrt_both <- anova(glm_base, glm_int_both, test="LRT")
+
+p_lrt_sex  <- lrt_sex[2,  "Pr(>Chi)"]
+p_lrt_rel  <- lrt_rel[2,  "Pr(>Chi)"]
+p_lrt_both <- lrt_both[2, "Pr(>Chi)"]
+
+cat(sprintf("LRT tori_parent × offspring_sex：p = %.4f\n", p_lrt_sex))
+cat(sprintf("LRT tori_parent × parent_sex   ：p = %.4f\n", p_lrt_rel))
+cat(sprintf("LRT both（联合检验）            ：p = %.4f\n", p_lrt_both))
+
+lrt_result <- data.frame(
+  test        = c("tori_parent × offspring_sex",
+                  "tori_parent × parent_sex (relation)",
+                  "Both interactions (joint)"),
+  LRT_p       = round(c(p_lrt_sex, p_lrt_rel, p_lrt_both), 4),
+  significant = c(p_lrt_sex < 0.05, p_lrt_rel < 0.05, p_lrt_both < 0.05),
+  stringsAsFactors = FALSE
+)
+print(lrt_result)
+
+# ============================================================
+# ⑩ 论文Table 3：Tetrachoric为主，Falconer为辅
+# ============================================================
+table3 <- merge(
+  h2_tetra[,    c("group","n","r_tetra","h2","CI_low","CI_high")],
+  h2_falconer[, c("group","K_parent","K_offspring","h2","CI_low","CI_high")],
+  by = "group", suffixes = c("_tetra","_falconer"), all.x = TRUE
+)
+# 按分组顺序排列
+group_order <- c("Overall","Mother","Father","Female offspring","Male offspring",
+                 "Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
+table3 <- table3[match(group_order, table3$group), ]
+rownames(table3) <- NULL
+cat("\n=== 论文Table 3 ===\n"); print(table3)
+
+# ============================================================
+# ⑪ 导出CSV
+# ============================================================
+write.csv(h2_falconer, "result_step4_falconer.csv",    row.names=FALSE, fileEncoding="UTF-8")
+write.csv(h2_tetra,    "result_step4_tetrachoric.csv", row.names=FALSE, fileEncoding="UTF-8")
+write.csv(z_result,    "result_step4_z_test.csv",      row.names=FALSE, fileEncoding="UTF-8")
+write.csv(lrt_result,  "result_step4_lrt.csv",         row.names=FALSE, fileEncoding="UTF-8")
+write.csv(table3,      "result_step4_table3.csv",      row.names=FALSE, fileEncoding="UTF-8")
+
+cat("\n=== Step 4 完成 ===\n")
+cat("✓ result_step4_falconer.csv\n")
+cat("✓ result_step4_tetrachoric.csv\n")
+cat("✓ result_step4_z_test.csv\n")
+cat("✓ result_step4_lrt.csv\n")
+cat("✓ result_step4_table3.csv\n")
+cat("注：主方法=Tetrachoric（Z检验和Table3均基于此）；Falconer为附录对照\n")
