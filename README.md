@@ -1,1 +1,0 @@
-# oral-exostosis-heritability
