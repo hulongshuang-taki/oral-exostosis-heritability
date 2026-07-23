@@ -3,19 +3,19 @@
 # Wave 1 is used when no Wave 2 record is available.
 
 df <- read.csv("df_clean.csv", fileEncoding = "UTF-8", stringsAsFactors = FALSE)
-cat("=== 原始数据 ===\n")
-cat("总行数：", nrow(df), "\n")
+cat("=== Raw data ===\n")
+cat("Total rows: ", nrow(df), "\n")
 
 required_cols <- c("id_child", "id_parent", "survey_child", "survey_parent")
 if (!all(required_cols %in% colnames(df))) {
-  stop("缺少必要列：", paste(setdiff(required_cols, colnames(df)), collapse=", "))
+  stop("Missing required columns: ", paste(setdiff(required_cols, colnames(df)), collapse=", "))
 }
 
 # ====== Stage 1: Remove cross-wave mismatches ======
-cat("\n=== 阶段1：按波次过滤 ===\n")
+cat("\n=== Stage 1: Filter by survey wave ===\n")
 df_wave_matched <- df[df$survey_child == df$survey_parent, ]
 n_removed <- nrow(df) - nrow(df_wave_matched)
-cat(sprintf("过滤前：%d，过滤后：%d，剔除跨波次：%d (%.1f%%)\n",
+cat(sprintf("Before filtering: %d; after filtering: %d; cross-wave records removed: %d (%.1f%%)\n",
             nrow(df), nrow(df_wave_matched), n_removed,
             n_removed / nrow(df) * 100))
 
@@ -25,30 +25,30 @@ write.csv(df_mismatch, "result_wave_mismatch_removed.csv", row.names = FALSE)
 # ====== Stage 1.5: Diagnose duplicate counts ======
 pair_key_wm    <- paste(df_wave_matched$id_child, df_wave_matched$id_parent, sep="_")
 pair_counts_wm <- table(pair_key_wm)
-cat("\n=== 阶段1后：重复分布 ===\n")
+cat("\n=== Duplicate distribution after Stage 1 ===\n")
 print(table(pair_counts_wm))
 
 dup_keys_wm <- names(pair_counts_wm[pair_counts_wm > 1])
-cat("仍重复的关系数：", length(dup_keys_wm), "\n")
+cat("Number of relationships still duplicated: ", length(dup_keys_wm), "\n")
 
 if (max(pair_counts_wm) > 2) {
-  cat("警告：存在出现次数>2的关系，请检查！\n")
+  cat("Warning: Some relationships occur more than twice; please review them.\n")
 }
 
 # ====== Stage 2: Merge records using Wave 2 as the reference ======
-cat("\n=== 阶段2：同波次重复合并（Wave2优先策略）===\n")
-cat("策略：有Wave2用Wave2；只有Wave1用Wave1；逆转（Wave1阳→Wave2阴）判为阴性\n")
+cat("\n=== Stage 2: Merge same-wave duplicates (Wave 2 priority) ===\n")
+cat("Strategy: use Wave 2 when available; otherwise use Wave 1; classify reversals (Wave 1 positive -> Wave 2 negative) as negative.\n")
 
 tori_cols  <- grep("^tori", colnames(df), value = TRUE)
 age_cols   <- grep("^age",  colnames(df), value = TRUE)
 other_cols <- setdiff(colnames(df_wave_matched),
                       c(tori_cols, age_cols, "survey_child", "survey_parent"))
 
-cat("骨隆起合并列：", paste(tori_cols, collapse=", "), "\n")
-cat("年龄合并列：",   paste(age_cols,  collapse=", "), "\n")
+cat("Oral exostosis columns to merge: ", paste(tori_cols, collapse=", "), "\n")
+cat("Age columns to merge: ",   paste(age_cols,  collapse=", "), "\n")
 
 # Confirm the actual strings used for Wave 1 and Wave 2
-cat("\nsurvey_child实际取值（确认Wave标签）：\n")
+cat("\nActual survey_child values (verify wave labels):\n")
 print(table(df_wave_matched$survey_child, useNA="always"))
 # Confirm these values using the output above; defaults are shown below:
 WAVE1_LABEL <- "1次"
@@ -141,7 +141,7 @@ for (k in unique(key_dup)) {
   for (col in other_cols) {
     vals <- unique(rows[[col]])
     if (length(vals) > 1) {
-      cat(sprintf("警告：关系%s 在列%s 不一致：%s\n",
+      cat(sprintf("Warning: Relationship %s has inconsistent values in column %s: %s\n",
                   k, col, paste(vals, collapse=" vs ")))
     }
   }
@@ -156,18 +156,18 @@ rownames(df_merged) <- NULL
 df_final <- rbind(df_unique, df_merged)
 rownames(df_final) <- NULL
 
-cat("\n=== 最终汇总 ===\n")
-cat("原始df_clean.csv行数：              ", nrow(df), "\n")
-cat("剔除跨波次错配后：                   ", nrow(df_wave_matched), "\n")
-cat("最终去重后（分析用数据集）：          ", nrow(df_final), "\n")
-cat("\n--- 合并策略统计（重复亲子对）---\n")
-cat(sprintf("  Wave2阳性（含新发）：%d\n",  n_w2_pos))
-cat(sprintf("  Wave2阴性：          %d\n",  n_w2_neg))
-cat(sprintf("  其中逆转（W1阳→W2阴）：%d（此部分OR合并会高估为阳性）\n", n_reversal))
-cat(sprintf("  其中新发（W1阴→W2阳）：%d（此部分两策略一致，均为阳性）\n", n_incident))
-cat(sprintf("  只有Wave1记录：      %d\n",  n_w1_only))
+cat("\n=== Final summary ===\n")
+cat("Rows in the original df_clean.csv:              ", nrow(df), "\n")
+cat("Rows after removing cross-wave mismatches:       ", nrow(df_wave_matched), "\n")
+cat("Rows after final deduplication (analysis data):  ", nrow(df_final), "\n")
+cat("\n--- Merge-strategy statistics for duplicate parent-offspring pairs ---\n")
+cat(sprintf("  Wave 2 positive (including incident cases): %d\n", n_w2_pos))
+cat(sprintf("  Wave 2 negative:                            %d\n", n_w2_neg))
+cat(sprintf("  Reversals (W1 positive -> W2 negative):     %d (OR merging would overestimate these as positive)\n", n_reversal))
+cat(sprintf("  Incident cases (W1 negative -> W2 positive): %d (both strategies classify these as positive)\n", n_incident))
+cat(sprintf("  Wave 1 records only:                        %d\n", n_w1_only))
 
 write.csv(df_final, "df_sensitivity_wave2.csv",
           row.names = FALSE, fileEncoding = "UTF-8")
 
-cat("\n已导出：df_sensitivity_wave2.csv\n")
+cat("\nExported: df_sensitivity_wave2.csv\n")

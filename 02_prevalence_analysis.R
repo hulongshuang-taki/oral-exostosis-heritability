@@ -4,7 +4,7 @@
 # 1. Read the data
 df <- read.csv("df_final_corrected.csv",
                fileEncoding = "UTF-8", stringsAsFactors = FALSE)
-cat("总行数：", nrow(df), "\n")
+cat("Total rows: ", nrow(df), "\n")
 
 # 2. Create binary variables (rebuild them without relying on existing columns)
 df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
@@ -13,7 +13,7 @@ df$sex_child_bin   <- as.integer(df$sex_child   == "F")   # F = 1, M = 0 (refere
 df$relation_bin    <- as.integer(df$relation    == "母")  # Mother = 1, father = 0 (reference: father)
 
 # Verify the coding after execution to ensure there are no NAs or unexpected values
-cat("\n--- 编码确认 ---\n")
+cat("\n--- Coding verification ---\n")
 cat("tori_child_bin:\n");  print(table(df$tori_child,  df$tori_child_bin,  useNA="always"))
 cat("tori_parent_bin:\n"); print(table(df$tori_parent, df$tori_parent_bin, useNA="always"))
 cat("sex_child_bin:\n");   print(table(df$sex_child,   df$sex_child_bin))
@@ -27,7 +27,7 @@ cat("relation_bin:\n");    print(table(df$relation,    df$relation_bin))
 calc_age_prev <- function(data, age_col, tori_bin_col, id_col,
                           age_min, age_max, breaks, labels, group_name) {
   sub <- data[data[[age_col]] >= age_min & data[[age_col]] < age_max, ]
-  cat(sprintf("%s：保留%d行（%d–%d岁），排除%d行\n",
+  cat(sprintf("%s: retained %d rows (ages %d–%d); excluded %d rows\n",
               group_name, nrow(sub), age_min, age_max-1,
               nrow(data) - nrow(sub)))
   sub$age_grp <- cut(sub[[age_col]], breaks = breaks,
@@ -45,7 +45,7 @@ calc_age_prev <- function(data, age_col, tori_bin_col, id_col,
   )
 }
 
-cat("\n--- 年龄分层患病率 ---\n")
+cat("\n--- Age-stratified prevalence ---\n")
 age_child <- calc_age_prev(
   df, "age_child", "tori_child_bin", "id_child",
   20, 60, seq(20, 60, 10), c("20s","30s","40s","50s"), "Offspring"
@@ -62,12 +62,12 @@ print(age_result_all)
 # Offspring: F vs M
 # Parents: mother vs father (do not use sex_parent because it is perfectly collinear with relationship)
 # ============================================================
-cat("\n--- 子代 性别比较 ---\n")
+cat("\n--- Offspring sex comparison ---\n")
 tab_child  <- table(sex      = df$sex_child, tori = df$tori_child_bin)
 chisq_child <- chisq.test(tab_child)
 print(tab_child); print(chisq_child)
 
-cat("\n--- 亲代 父母比较 ---\n")
+cat("\n--- Parent comparison: mothers vs fathers ---\n")
 tab_parent  <- table(relation = df$relation,  tori = df$tori_parent_bin)
 chisq_parent <- chisq.test(tab_parent)
 print(tab_parent); print(chisq_parent)
@@ -103,7 +103,7 @@ print(sex_comparison)
 # 5. Compare parent and offspring prevalence (McNemar's test)
 # Use binary columns to avoid coding issues in the original character columns
 # ============================================================
-cat("\n--- McNemar検験（亲代 vs 子代）---\n")
+cat("\n--- McNemar's test (parents vs offspring) ---\n")
 prev_child  <- mean(df$tori_child_bin,  na.rm = TRUE) * 100
 prev_parent <- mean(df$tori_parent_bin, na.rm = TRUE) * 100
 cat(sprintf("Offspring: %.1f%%  Parent: %.1f%%\n", prev_child, prev_parent))
@@ -132,7 +132,7 @@ prev_comparison <- data.frame(
 # Offspring: age_child and sex_child_bin (F = 1; reference: male)
 # Parents: age_parent and relation_bin (mother = 1; reference: father)
 # ============================================================
-cat("\n--- 单因素logistic回归 ---\n")
+cat("\n--- Univariable logistic regression ---\n")
 
 fit_glm <- function(formula, data) {
   m  <- glm(formula, data = data, family = binomial(link = "logit"))
@@ -173,9 +173,9 @@ write.csv(prev_comparison,  "result_step2_parent_vs_child.csv",
 write.csv(logistic_result,  "result_step2_logistic.csv",
           row.names = FALSE, fileEncoding = "UTF-8")
 
-cat("\n=== Step 2 完成 ===\n")
+cat("\n=== Step 2 completed ===\n")
 cat("✓ result_step2_age_prevalence.csv\n")
 cat("✓ result_step2_sex_comparison.csv\n")
 cat("✓ result_step2_parent_vs_child.csv\n")
 cat("✓ result_step2_logistic.csv\n")
-cat("注：子代性别ref=男性（OR<1=女性风险低）；亲代比较ref=父亲（OR<1=母亲患病率低）\n")
+cat("Note: Male offspring are the reference (OR < 1 indicates lower risk in females); fathers are the parent reference (OR < 1 indicates lower prevalence in mothers).\n")

@@ -5,7 +5,7 @@
 # 1. Read the data and rebuild the binary variables
 df <- read.csv("df_final_corrected.csv",
                fileEncoding = "UTF-8", stringsAsFactors = FALSE)
-cat("总行数：", nrow(df), "\n")
+cat("Total rows: ", nrow(df), "\n")
 
 df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
 df$tori_parent_bin <- as.integer(df$tori_parent == "1. あり")
@@ -18,7 +18,7 @@ df$pair_type <- paste(
 )
 
 # Verify the coding
-cat("\n--- 编码确认 ---\n")
+cat("\n--- Coding verification ---\n")
 cat("tori_child_bin:\n");  print(table(df$tori_child,  df$tori_child_bin,  useNA="always"))
 cat("tori_parent_bin:\n"); print(table(df$tori_parent, df$tori_parent_bin, useNA="always"))
 
@@ -42,7 +42,7 @@ falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
 
   # Boundary check: the Falconer formula fails when prevalence is too extreme
   if (K_p <= 0 || K_p >= 1 || K_o <= 0 || K_o >= 1) {
-    cat(sprintf("警告：%s 患病率超出范围（K_p=%.3f, K_o=%.3f），跳过\n",
+    cat(sprintf("Warning: %s prevalence is outside the valid range (K_p=%.3f, K_o=%.3f); skipping.\n",
                 label, K_p, K_o))
     return(data.frame(group=label, n=n, K_parent=NA, K_offspring=NA,
                       r_falconer=NA, h2=NA, CI_low=NA, CI_high=NA))
@@ -108,7 +108,7 @@ tetra_h2 <- function(parent_bin, child_bin, label = "") {
                CI_low=round(CI_low, 4), CI_high=round(CI_high, 4),
                stringsAsFactors=FALSE)
   }, error = function(e) {
-    cat(sprintf("警告：%s Tetrachoric失败 - %s\n", label, e$message))
+    cat(sprintf("Warning: Tetrachoric analysis failed for %s - %s\n", label, e$message))
     data.frame(group=label, n=n,
                r_tetra=NA, h2=NA, CI_low=NA, CI_high=NA,
                stringsAsFactors=FALSE)
@@ -139,7 +139,7 @@ pair_types   <- c("Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
 # ============================================================
 # 6. Run the Falconer analysis
 # ============================================================
-cat("\n--- Falconer法（Bootstrap 1000次，请稍候）---\n")
+cat("\n--- Falconer method (1,000 bootstrap iterations; please wait) ---\n")
 set.seed(42)  # Global seed to make the bootstrap reproducible across all groups
 f_overall  <- falconer_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
 f_mother   <- falconer_h2(df$tori_parent_bin[idx_mother],   df$tori_child_bin[idx_mother],   "Mother")
@@ -157,12 +157,12 @@ h2_falconer <- do.call(rbind, c(
   list(f_overall, f_mother, f_father, f_daughter, f_son),
   f_pairs[!sapply(f_pairs, is.null)]
 ))
-cat("\n=== Falconer结果 ===\n"); print(h2_falconer)
+cat("\n=== Falconer results ===\n"); print(h2_falconer)
 
 # ============================================================
 # 7. Run the tetrachoric analysis
 # ============================================================
-cat("\n--- Tetrachoric法 ---\n")
+cat("\n--- Tetrachoric method ---\n")
 t_overall  <- tetra_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
 t_mother   <- tetra_h2(df$tori_parent_bin[idx_mother],   df$tori_child_bin[idx_mother],   "Mother")
 t_father   <- tetra_h2(df$tori_parent_bin[idx_father],   df$tori_child_bin[idx_father],   "Father")
@@ -178,19 +178,19 @@ h2_tetra <- do.call(rbind, c(
   list(t_overall, t_mother, t_father, t_daughter, t_son),
   t_pairs
 ))
-cat("\n=== Tetrachoric结果 ===\n"); print(h2_tetra)
+cat("\n=== Tetrachoric results ===\n"); print(h2_tetra)
 
 # ============================================================
 # 8. Z-tests: maternal vs paternal and female vs male offspring
 # Use the tetrachoric results (primary method)
 # ============================================================
-cat("\n--- Z检验 ---\n")
+cat("\n--- Z-tests ---\n")
 z_parent   <- z_test_h2(t_mother,   t_father)
 z_offspring <- z_test_h2(t_daughter, t_son)
 
-cat(sprintf("母系(%.4f) vs 父系(%.4f)：Z=%.3f, p=%.4f\n",
+cat(sprintf("Maternal (%.4f) vs paternal (%.4f): Z=%.3f, p=%.4f\n",
             t_mother$h2, t_father$h2, z_parent$Z, z_parent$p))
-cat(sprintf("女性子代(%.4f) vs 男性子代(%.4f)：Z=%.3f, p=%.4f\n",
+cat(sprintf("Female offspring (%.4f) vs male offspring (%.4f): Z=%.3f, p=%.4f\n",
             t_daughter$h2, t_son$h2, z_offspring$Z, z_offspring$p))
 
 z_result <- data.frame(
@@ -208,7 +208,7 @@ print(z_result)
 # 9. Likelihood-ratio tests for sex-specific transmission
 # Model A (base) vs B (+ offspring-sex interaction) vs C (+ parent-sex interaction) vs D (both interactions)
 # ============================================================
-cat("\n--- LRT似然比检验 ---\n")
+cat("\n--- Likelihood-ratio tests ---\n")
 
 glm_base     <- glm(tori_child_bin ~ tori_parent_bin + sex_child_bin + relation_bin + age_child,
                     data=df, family=binomial())
@@ -230,7 +230,7 @@ p_lrt_both <- lrt_both[2, "Pr(>Chi)"]
 
 cat(sprintf("LRT tori_parent × offspring_sex：p = %.4f\n", p_lrt_sex))
 cat(sprintf("LRT tori_parent × parent_sex   ：p = %.4f\n", p_lrt_rel))
-cat(sprintf("LRT both（联合检验）            ：p = %.4f\n", p_lrt_both))
+cat(sprintf("LRT both (joint test)                     : p = %.4f\n", p_lrt_both))
 
 lrt_result <- data.frame(
   test        = c("tori_parent × offspring_sex",
@@ -255,7 +255,7 @@ group_order <- c("Overall","Mother","Father","Female offspring","Male offspring"
                  "Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
 table3 <- table3[match(group_order, table3$group), ]
 rownames(table3) <- NULL
-cat("\n=== 论文Table 3 ===\n"); print(table3)
+cat("\n=== Manuscript Table 3 ===\n"); print(table3)
 
 # ============================================================
 # 11. Export CSV files
@@ -266,10 +266,10 @@ write.csv(z_result,    "result_step4_z_test.csv",      row.names=FALSE, fileEnco
 write.csv(lrt_result,  "result_step4_lrt.csv",         row.names=FALSE, fileEncoding="UTF-8")
 write.csv(table3,      "result_step4_table3.csv",      row.names=FALSE, fileEncoding="UTF-8")
 
-cat("\n=== Step 4 完成 ===\n")
+cat("\n=== Step 4 completed ===\n")
 cat("✓ result_step4_falconer.csv\n")
 cat("✓ result_step4_tetrachoric.csv\n")
 cat("✓ result_step4_z_test.csv\n")
 cat("✓ result_step4_lrt.csv\n")
 cat("✓ result_step4_table3.csv\n")
-cat("注：主方法=Tetrachoric（Z检验和Table3均基于此）；Falconer为附录对照\n")
+cat("Note: Tetrachoric correlation is the primary method and underlies the Z-tests and Table 3; Falconer is included as a supplementary comparison.\n")

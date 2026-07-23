@@ -5,15 +5,15 @@
 # 1. Read the corrected data
 df <- read.csv("df_final_corrected.csv", fileEncoding = "UTF-8", stringsAsFactors = FALSE)
 
-cat("=== 数据基本信息 ===\n")
-cat("总行数（修正后亲子对数）：", nrow(df), "\n")
-cat("列名：\n")
+cat("=== Basic data information ===\n")
+cat("Total rows (corrected parent-offspring pairs): ", nrow(df), "\n")
+cat("Column names:\n")
 print(colnames(df))
 
 # Count merged rows (survey_child_bin = NA indicates records merged across both waves)
 n_merged_rows <- sum(is.na(df$survey_child_bin))
 n_single_wave <- nrow(df) - n_merged_rows
-cat(sprintf("\n其中：单波次记录 %d 行，两波合并记录（survey=NA）%d 行\n",
+cat(sprintf("\nSingle-wave records: %d rows; records merged across both waves (survey = NA): %d rows\n",
             n_single_wave, n_merged_rows))
 
 # 2. Confirm that required variables exist; recreate them if needed
@@ -34,7 +34,7 @@ if (!"pair_type" %in% colnames(df)) {
 # ============================================================
 # 3. Offspring statistics
 # ============================================================
-cat("\n=== 子代（Offspring）===\n")
+cat("\n=== Offspring ===\n")
 
 n_off          <- nrow(df)
 age_off_mean   <- mean(df$age_child, na.rm = TRUE)
@@ -54,13 +54,13 @@ tori_by_sex_child <- tapply(
   df$tori_child == "有", df$sex_child,
   function(x) round(mean(x, na.rm = TRUE) * 100, 1)
 )
-cat("\n子代骨隆起患病率（按性别）：\n")
+cat("\nOffspring oral exostosis prevalence by sex:\n")
 print(tori_by_sex_child)
 
 # ============================================================
 # 4. Parent statistics
 # ============================================================
-cat("\n=== 母亲（Mother）===\n")
+cat("\n=== Mothers ===\n")
 df_mother    <- df[df$relation == "母", ]
 n_mom        <- nrow(df_mother)
 age_mom_mean <- mean(df_mother$age_parent, na.rm = TRUE)
@@ -72,7 +72,7 @@ cat(sprintf("N = %d\n", n_mom))
 cat(sprintf("Age: %.1f ± %.1f\n", age_mom_mean, age_mom_sd))
 cat(sprintf("Tori prevalence: %d (%.1f%%)\n", n_mom_tori, pct_mom_tori))
 
-cat("\n=== 父亲（Father）===\n")
+cat("\n=== Fathers ===\n")
 df_father    <- df[df$relation == "父", ]
 n_dad        <- nrow(df_father)
 age_dad_mean <- mean(df_father$age_parent, na.rm = TRUE)
@@ -87,7 +87,7 @@ cat(sprintf("Tori prevalence: %d (%.1f%%)\n", n_dad_tori, pct_dad_tori))
 # ============================================================
 # 5. Parent-offspring pair-type statistics
 # ============================================================
-cat("\n=== 亲子对类型（Pair Types）===\n")
+cat("\n=== Parent-offspring pair types ===\n")
 
 pair_tab <- table(df$pair_type)
 pair_pct <- prop.table(pair_tab) * 100
@@ -103,18 +103,18 @@ cat("Total pairs:", nrow(df), "\n")
 # ============================================================
 # 6. Prevalence by survey wave (single-wave records only; merged rows excluded)
 # ============================================================
-cat("\n=== 波次分层患病率（仅单波次记录，排除合并行）===\n")
+cat("\n=== Prevalence by wave (single-wave records only; merged rows excluded) ===\n")
 
 df_single <- df[!is.na(df$survey_child_bin), ]
-cat(sprintf("用于波次分层分析的行数：%d（排除合并行%d行）\n",
+cat(sprintf("Rows used for wave-stratified analysis: %d (%d merged rows excluded)\n",
             nrow(df_single), n_merged_rows))
 
-cat("df_single里survey_child取值分布（应无NA）：\n")
+cat("Distribution of survey_child values in df_single (should contain no NAs):\n")
 print(table(df_single$survey_child, useNA = "always"))
 
 # Offspring stratified by survey wave
 survey_child_tab <- table(df_single$survey_child, df_single$tori_child)
-cat("\n子代按调查波次分层的骨隆起情况：\n")
+cat("\nOffspring oral exostosis status by survey wave:\n")
 print(survey_child_tab)
 print(round(prop.table(survey_child_tab, margin = 1) * 100, 1))
 chisq_child <- chisq.test(survey_child_tab)
@@ -122,7 +122,7 @@ print(chisq_child)
 
 # Parents stratified by survey wave
 survey_parent_tab <- table(df_single$survey_parent, df_single$tori_parent)
-cat("\n亲代按调查波次分层的骨隆起情况：\n")
+cat("\nParent oral exostosis status by survey wave:\n")
 print(survey_parent_tab)
 print(round(prop.table(survey_parent_tab, margin = 1) * 100, 1))
 chisq_parent <- chisq.test(survey_parent_tab)
@@ -198,6 +198,6 @@ write.csv(survey_parent_out, "result_step1_wave_parent.csv",
           row.names = FALSE, fileEncoding = "UTF-8")
 cat("✓ result_step1_wave_parent.csv\n")
 
-cat("\n=== Step 1 全部完成 ===\n")
-cat(sprintf("基于修正后数据集，总样本量 N = %d\n", nrow(df)))
-cat(sprintf("其中 %d 行为两波合并记录（波次分层分析已排除）\n", n_merged_rows))
+cat("\n=== Step 1 completed ===\n")
+cat(sprintf("Total sample size based on the corrected data set: N = %d\n", nrow(df)))
+cat(sprintf("Of these, %d rows were merged across both waves and excluded from the wave-stratified analysis.\n", n_merged_rows))
