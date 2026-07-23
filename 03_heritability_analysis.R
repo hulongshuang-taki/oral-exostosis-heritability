@@ -2,7 +2,7 @@
 # The tetrachoric estimate is the primary analysis; the Falconer estimate is
 # retained as a sensitivity analysis. Requires the polycor package.
 
-# ① 读取数据 + 强制重建binary变量
+# 1. Read the data and rebuild the binary variables
 df <- read.csv("df_final_corrected.csv",
                fileEncoding = "UTF-8", stringsAsFactors = FALSE)
 cat("总行数：", nrow(df), "\n")
@@ -10,26 +10,26 @@ cat("总行数：", nrow(df), "\n")
 df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
 df$tori_parent_bin <- as.integer(df$tori_parent == "1. あり")
 df$sex_child_bin   <- as.integer(df$sex_child   == "F")  # F=1, M=0
-df$relation_bin    <- as.integer(df$relation    == "母") # 母=1, 父=0
+df$relation_bin    <- as.integer(df$relation    == "母") # Mother = 1, father = 0
 df$pair_type <- paste(
   ifelse(df$relation  == "母", "Mother", "Father"),
   ifelse(df$sex_child == "F",  "Daughter", "Son"),
   sep = "-"
 )
 
-# 编码确认
+# Verify the coding
 cat("\n--- 编码确认 ---\n")
 cat("tori_child_bin:\n");  print(table(df$tori_child,  df$tori_child_bin,  useNA="always"))
 cat("tori_parent_bin:\n"); print(table(df$tori_parent, df$tori_parent_bin, useNA="always"))
 
 # ============================================================
-# ② Falconer Liability Threshold Model
-# 公式：h² = 2 × r_falconer
+# 2. Falconer liability-threshold model
+# Formula: h² = 2 × r_falconer
 # r_falconer = (K_R - K_o) × t_p / (z_p × (1 - K_o))
-#   K_p = 亲代患病率，K_o = 子代患病率
-#   K_R = 亲代患病者中子代患病率（conditional prevalence）
+#   K_p = parent prevalence; K_o = offspring prevalence
+#   K_R = offspring prevalence among affected parents (conditional prevalence)
 #   t_p = qnorm(1 - K_p)，z_p = dnorm(t_p)
-# Bootstrap在pair层面重抽（保持亲子对配对关系）
+# Resample at the pair level for the bootstrap to preserve parent-offspring pairing
 # ============================================================
 falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
   valid  <- !is.na(parent_bin) & !is.na(child_bin)
@@ -40,7 +40,7 @@ falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
   K_p <- mean(p_vec)
   K_o <- mean(o_vec)
 
-  # 边界检查：患病率过极端时Falconer公式失效
+  # Boundary check: the Falconer formula fails when prevalence is too extreme
   if (K_p <= 0 || K_p >= 1 || K_o <= 0 || K_o >= 1) {
     cat(sprintf("警告：%s 患病率超出范围（K_p=%.3f, K_o=%.3f），跳过\n",
                 label, K_p, K_o))
@@ -50,12 +50,12 @@ falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
 
   t_p <- qnorm(1 - K_p)
   z_p <- dnorm(t_p)
-  K_R <- mean(o_vec[p_vec == 1])  # 亲代有时子代患病率
+  K_R <- mean(o_vec[p_vec == 1])  # Offspring prevalence among affected parents
 
   r  <- (K_R - K_o) * t_p / (z_p * (1 - K_o))
   h2 <- 2 * r
 
-  # Bootstrap（pair层面重抽，保持亲子配对）
+  # Bootstrap by resampling pairs to preserve parent-offspring pairing
   h2_boot <- replicate(n_boot, {
     idx   <- sample(n, n, replace = TRUE)
     p_b   <- p_vec[idx]; o_b <- o_vec[idx]
@@ -84,9 +84,9 @@ falconer_h2 <- function(parent_bin, child_bin, label = "", n_boot = 1000) {
 }
 
 # ============================================================
-# ③ Tetrachoric相关法
+# 3. Tetrachoric-correlation method
 # h² = 2 × r_tetrachoric
-# CI：基于polychor()返回的SE，delta法传播
+# CI: propagate the SE returned by polychor() using the delta method
 # ============================================================
 library(polycor)
 
@@ -116,8 +116,8 @@ tetra_h2 <- function(parent_bin, child_bin, label = "") {
 }
 
 # ============================================================
-# ④ Z检验函数（比较两个h²）
-# SE近似 = (CI_high - CI_low) / (2 × 1.96)
+# 4. Z-test function for comparing two h² estimates
+# Approximate SE = (CI_high - CI_low) / (2 × 1.96)
 # ============================================================
 z_test_h2 <- function(h2_a, h2_b) {
   se_a <- (h2_a$CI_high - h2_a$CI_low) / (2 * 1.96)
@@ -128,7 +128,7 @@ z_test_h2 <- function(h2_a, h2_b) {
 }
 
 # ============================================================
-# ⑤ 运行：定义分组索引
+# 5. Define grouping indices
 # ============================================================
 idx_mother   <- df$relation  == "母"
 idx_father   <- df$relation  == "父"
@@ -137,10 +137,10 @@ idx_son      <- df$sex_child == "M"
 pair_types   <- c("Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
 
 # ============================================================
-# ⑥ 运行Falconer
+# 6. Run the Falconer analysis
 # ============================================================
 cat("\n--- Falconer法（Bootstrap 1000次，请稍候）---\n")
-set.seed(42)  # 全局设置，保证所有分组Bootstrap可复现
+set.seed(42)  # Global seed to make the bootstrap reproducible across all groups
 f_overall  <- falconer_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
 f_mother   <- falconer_h2(df$tori_parent_bin[idx_mother],   df$tori_child_bin[idx_mother],   "Mother")
 f_father   <- falconer_h2(df$tori_parent_bin[idx_father],   df$tori_child_bin[idx_father],   "Father")
@@ -160,7 +160,7 @@ h2_falconer <- do.call(rbind, c(
 cat("\n=== Falconer结果 ===\n"); print(h2_falconer)
 
 # ============================================================
-# ⑦ 运行Tetrachoric
+# 7. Run the tetrachoric analysis
 # ============================================================
 cat("\n--- Tetrachoric法 ---\n")
 t_overall  <- tetra_h2(df$tori_parent_bin, df$tori_child_bin, "Overall")
@@ -181,8 +181,8 @@ h2_tetra <- do.call(rbind, c(
 cat("\n=== Tetrachoric结果 ===\n"); print(h2_tetra)
 
 # ============================================================
-# ⑧ Z检验：母系 vs 父系、女性子代 vs 男性子代
-# 注意：用Tetrachoric结果（主方法）
+# 8. Z-tests: maternal vs paternal and female vs male offspring
+# Use the tetrachoric results (primary method)
 # ============================================================
 cat("\n--- Z检验 ---\n")
 z_parent   <- z_test_h2(t_mother,   t_father)
@@ -205,8 +205,8 @@ z_result <- data.frame(
 print(z_result)
 
 # ============================================================
-# ⑨ LRT似然比检验（性别特异性遗传）
-# 模型A（基础）vs B（+ 子代性别交互）vs C（+ 亲代性别交互）vs D（双交互）
+# 9. Likelihood-ratio tests for sex-specific transmission
+# Model A (base) vs B (+ offspring-sex interaction) vs C (+ parent-sex interaction) vs D (both interactions)
 # ============================================================
 cat("\n--- LRT似然比检验 ---\n")
 
@@ -243,14 +243,14 @@ lrt_result <- data.frame(
 print(lrt_result)
 
 # ============================================================
-# ⑩ 论文Table 3：Tetrachoric为主，Falconer为辅
+# 10. Manuscript Table 3: tetrachoric as primary and Falconer as supplementary
 # ============================================================
 table3 <- merge(
   h2_tetra[,    c("group","n","r_tetra","h2","CI_low","CI_high")],
   h2_falconer[, c("group","K_parent","K_offspring","h2","CI_low","CI_high")],
   by = "group", suffixes = c("_tetra","_falconer"), all.x = TRUE
 )
-# 按分组顺序排列
+# Arrange rows in group order
 group_order <- c("Overall","Mother","Father","Female offspring","Male offspring",
                  "Mother-Daughter","Mother-Son","Father-Daughter","Father-Son")
 table3 <- table3[match(group_order, table3$group), ]
@@ -258,7 +258,7 @@ rownames(table3) <- NULL
 cat("\n=== 论文Table 3 ===\n"); print(table3)
 
 # ============================================================
-# ⑪ 导出CSV
+# 11. Export CSV files
 # ============================================================
 write.csv(h2_falconer, "result_step4_falconer.csv",    row.names=FALSE, fileEncoding="UTF-8")
 write.csv(h2_tetra,    "result_step4_tetrachoric.csv", row.names=FALSE, fileEncoding="UTF-8")

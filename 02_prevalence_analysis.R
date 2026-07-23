@@ -1,18 +1,18 @@
 # Prevalence analyses by age, sex, and parental relationship.
 # Input: df_final_corrected.csv
 
-# ① 读取数据
+# 1. Read the data
 df <- read.csv("df_final_corrected.csv",
                fileEncoding = "UTF-8", stringsAsFactors = FALSE)
 cat("总行数：", nrow(df), "\n")
 
-# ② 生成binary变量（强制重建，不依赖已有列）
+# 2. Create binary variables (rebuild them without relying on existing columns)
 df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
 df$tori_parent_bin <- as.integer(df$tori_parent == "1. あり")
-df$sex_child_bin   <- as.integer(df$sex_child   == "F")   # F=1, M=0（ref=男性）
-df$relation_bin    <- as.integer(df$relation    == "母")  # 母=1, 父=0（ref=父亲）
+df$sex_child_bin   <- as.integer(df$sex_child   == "F")   # F = 1, M = 0 (reference: male)
+df$relation_bin    <- as.integer(df$relation    == "母")  # Mother = 1, father = 0 (reference: father)
 
-# 编码确认（运行后肉眼检查，确保无NA、无异常值）
+# Verify the coding after execution to ensure there are no NAs or unexpected values
 cat("\n--- 编码确认 ---\n")
 cat("tori_child_bin:\n");  print(table(df$tori_child,  df$tori_child_bin,  useNA="always"))
 cat("tori_parent_bin:\n"); print(table(df$tori_parent, df$tori_parent_bin, useNA="always"))
@@ -20,9 +20,9 @@ cat("sex_child_bin:\n");   print(table(df$sex_child,   df$sex_child_bin))
 cat("relation_bin:\n");    print(table(df$relation,    df$relation_bin))
 
 # ============================================================
-# ③ 年龄分层患病率
-# 子代：20–59岁（60岁以上样本量过小，排除）
-# 亲代：40–79岁（两端样本量过小，排除）
+# 3. Age-stratified prevalence
+# Offspring: ages 20–59 (exclude age 60+ because of the small sample size)
+# Parents: ages 40–79 (exclude both extremes because of small sample sizes)
 # ============================================================
 calc_age_prev <- function(data, age_col, tori_bin_col, id_col,
                           age_min, age_max, breaks, labels, group_name) {
@@ -32,7 +32,7 @@ calc_age_prev <- function(data, age_col, tori_bin_col, id_col,
               nrow(data) - nrow(sub)))
   sub$age_grp <- cut(sub[[age_col]], breaks = breaks,
                      right = FALSE, labels = labels)
-  # 用tapply一次计算n和n_tori，避免merge行序错乱
+  # Use tapply to calculate n and n_tori at once, avoiding row-order errors from merge
   n_vec     <- tapply(sub[[id_col]],       sub$age_grp, length)
   ntori_vec <- tapply(sub[[tori_bin_col]], sub$age_grp, sum, na.rm = TRUE)
   data.frame(
@@ -58,9 +58,9 @@ age_result_all <- rbind(age_child, age_parent)
 print(age_result_all)
 
 # ============================================================
-# ④ 性别・父母別患病率比較（卡方検験）
-# 子代：F vs M
-# 亲代：母 vs 父（不用sex_parent，因母=F、父=M完全共线）
+# 4. Compare prevalence by offspring sex and parental relationship (chi-squared tests)
+# Offspring: F vs M
+# Parents: mother vs father (do not use sex_parent because it is perfectly collinear with relationship)
 # ============================================================
 cat("\n--- 子代 性别比较 ---\n")
 tab_child  <- table(sex      = df$sex_child, tori = df$tori_child_bin)
@@ -72,7 +72,7 @@ tab_parent  <- table(relation = df$relation,  tori = df$tori_parent_bin)
 chisq_parent <- chisq.test(tab_parent)
 print(tab_parent); print(chisq_parent)
 
-# 整理成输出表
+# Format the results as an output table
 calc_prev_row <- function(data, filter_col, filter_val, tori_col) {
   sub <- data[data[[filter_col]] == filter_val, ]
   n   <- nrow(sub)
@@ -100,8 +100,8 @@ sex_comparison <- data.frame(
 print(sex_comparison)
 
 # ============================================================
-# ⑤ 亲代 vs 子代患病率比较（McNemar检验）
-# 用binary列，避免原始字符列编码问题
+# 5. Compare parent and offspring prevalence (McNemar's test)
+# Use binary columns to avoid coding issues in the original character columns
 # ============================================================
 cat("\n--- McNemar検験（亲代 vs 子代）---\n")
 prev_child  <- mean(df$tori_child_bin,  na.rm = TRUE) * 100
@@ -112,7 +112,7 @@ mcnemar_tab    <- table(offspring = df$tori_child_bin, parent = df$tori_parent_b
 mcnemar_result <- mcnemar.test(mcnemar_tab)
 print(mcnemar_tab); print(mcnemar_result)
 
-# 按子代性别分层
+# Stratify by offspring sex
 for (sx in c("F", "M")) {
   sub <- df[df$sex_child == sx, ]
   cat(sprintf("Sex=%s | Offspring: %.1f%%  Parent: %.1f%%\n", sx,
@@ -128,9 +128,9 @@ prev_comparison <- data.frame(
 )
 
 # ============================================================
-# ⑥ 单因素logistic回归
-# 子代：age_child、sex_child_bin（F=1，ref=男性）
-# 亲代：age_parent、relation_bin（母=1，ref=父亲）
+# 6. Univariable logistic regression
+# Offspring: age_child and sex_child_bin (F = 1; reference: male)
+# Parents: age_parent and relation_bin (mother = 1; reference: father)
 # ============================================================
 cat("\n--- 单因素logistic回归 ---\n")
 
@@ -162,7 +162,7 @@ logistic_result <- data.frame(
 print(logistic_result)
 
 # ============================================================
-# ⑦ 导出CSV
+# 7. Export CSV files
 # ============================================================
 write.csv(age_result_all,   "result_step2_age_prevalence.csv",
           row.names = FALSE, fileEncoding = "UTF-8")

@@ -2,7 +2,7 @@
 # Input: df_final_corrected.csv
 # Output files contain the main descriptive table and supporting summaries.
 
-# ① 读取修正后数据
+# 1. Read the corrected data
 df <- read.csv("df_final_corrected.csv", fileEncoding = "UTF-8", stringsAsFactors = FALSE)
 
 cat("=== 数据基本信息 ===\n")
@@ -10,13 +10,13 @@ cat("总行数（修正后亲子对数）：", nrow(df), "\n")
 cat("列名：\n")
 print(colnames(df))
 
-# 统计合并行数量（survey_child_bin=NA的行，即来自两波合并的记录）
+# Count merged rows (survey_child_bin = NA indicates records merged across both waves)
 n_merged_rows <- sum(is.na(df$survey_child_bin))
 n_single_wave <- nrow(df) - n_merged_rows
 cat(sprintf("\n其中：单波次记录 %d 行，两波合并记录（survey=NA）%d 行\n",
             n_single_wave, n_merged_rows))
 
-# ② 确认必要变量存在，若无则重新生成
+# 2. Confirm that required variables exist; recreate them if needed
 if (!"tori_child_bin" %in% colnames(df)) {
   df$tori_child_bin  <- ifelse(df$tori_child  == "有", 1, 0)
 }
@@ -32,7 +32,7 @@ if (!"pair_type" %in% colnames(df)) {
 }
 
 # ============================================================
-# ③ 子代统计
+# 3. Offspring statistics
 # ============================================================
 cat("\n=== 子代（Offspring）===\n")
 
@@ -49,7 +49,7 @@ cat(sprintf("Age: %.1f ± %.1f\n", age_off_mean, age_off_sd))
 cat(sprintf("Female: %d (%.1f%%)\n", n_off_female, pct_off_female))
 cat(sprintf("Tori prevalence: %d (%.1f%%)\n", n_off_tori, pct_off_tori))
 
-# 子代骨隆起按性别分层
+# Stratify offspring oral exostosis by sex
 tori_by_sex_child <- tapply(
   df$tori_child == "有", df$sex_child,
   function(x) round(mean(x, na.rm = TRUE) * 100, 1)
@@ -58,7 +58,7 @@ cat("\n子代骨隆起患病率（按性别）：\n")
 print(tori_by_sex_child)
 
 # ============================================================
-# ④ 亲代统计
+# 4. Parent statistics
 # ============================================================
 cat("\n=== 母亲（Mother）===\n")
 df_mother    <- df[df$relation == "母", ]
@@ -85,7 +85,7 @@ cat(sprintf("Age: %.1f ± %.1f\n", age_dad_mean, age_dad_sd))
 cat(sprintf("Tori prevalence: %d (%.1f%%)\n", n_dad_tori, pct_dad_tori))
 
 # ============================================================
-# ⑤ 亲子对类型统计
+# 5. Parent-offspring pair-type statistics
 # ============================================================
 cat("\n=== 亲子对类型（Pair Types）===\n")
 
@@ -101,7 +101,7 @@ print(pair_summary)
 cat("Total pairs:", nrow(df), "\n")
 
 # ============================================================
-# ⑥ 按调查波次分层的患病率（仅限单波次记录，排除合并行）
+# 6. Prevalence by survey wave (single-wave records only; merged rows excluded)
 # ============================================================
 cat("\n=== 波次分层患病率（仅单波次记录，排除合并行）===\n")
 
@@ -112,7 +112,7 @@ cat(sprintf("用于波次分层分析的行数：%d（排除合并行%d行）\n"
 cat("df_single里survey_child取值分布（应无NA）：\n")
 print(table(df_single$survey_child, useNA = "always"))
 
-# 子代波次分层
+# Offspring stratified by survey wave
 survey_child_tab <- table(df_single$survey_child, df_single$tori_child)
 cat("\n子代按调查波次分层的骨隆起情况：\n")
 print(survey_child_tab)
@@ -120,7 +120,7 @@ print(round(prop.table(survey_child_tab, margin = 1) * 100, 1))
 chisq_child <- chisq.test(survey_child_tab)
 print(chisq_child)
 
-# 亲代波次分层
+# Parents stratified by survey wave
 survey_parent_tab <- table(df_single$survey_parent, df_single$tori_parent)
 cat("\n亲代按调查波次分层的骨隆起情况：\n")
 print(survey_parent_tab)
@@ -129,10 +129,10 @@ chisq_parent <- chisq.test(survey_parent_tab)
 print(chisq_parent)
 
 # ============================================================
-# ⑦ 导出：各结果独立CSV
+# 7. Export each result to a separate CSV file
 # ============================================================
 
-# --- CSV 1：描述性统计主表 ---
+# --- CSV 1: Main descriptive-statistics table ---
 table1 <- data.frame(
   group      = c("Offspring", "Mother", "Father"),
   n          = c(n_off, n_mom, n_dad),
@@ -147,11 +147,11 @@ table1 <- data.frame(
 write.csv(table1, "result_step1_table1.csv", row.names = FALSE, fileEncoding = "UTF-8")
 cat("\n✓ result_step1_table1.csv\n")
 
-# --- CSV 2：亲子对类型分布 ---
+# --- CSV 2: Distribution of parent-offspring pair types ---
 write.csv(pair_summary, "result_step1_pair_types.csv", row.names = FALSE, fileEncoding = "UTF-8")
 cat("✓ result_step1_pair_types.csv\n")
 
-# --- CSV 3：子代骨隆起患病率（按性别）---
+# --- CSV 3: Offspring oral exostosis prevalence by sex ---
 tori_sex_df <- data.frame(
   sex        = names(tori_by_sex_child),
   tori_pct   = as.vector(tori_by_sex_child),
@@ -160,7 +160,7 @@ tori_sex_df <- data.frame(
 write.csv(tori_sex_df, "result_step1_tori_by_sex.csv", row.names = FALSE, fileEncoding = "UTF-8")
 cat("✓ result_step1_tori_by_sex.csv\n")
 
-# --- CSV 4：子代波次分层患病率 ---
+# --- CSV 4: Offspring prevalence by survey wave ---
 survey_child_long <- as.data.frame(survey_child_tab, stringsAsFactors = FALSE)
 colnames(survey_child_long) <- c("wave", "tori_status", "count")
 survey_child_pct  <- as.data.frame(
@@ -174,7 +174,7 @@ survey_child_out$chisq_p <- ifelse(
   survey_child_out$tori_status == survey_child_out$tori_status[1],
   round(chisq_child$p.value, 4), ""
 )
-# 只在第一行写p值，其余留空
+# Write the p-value in the first row only; leave the remaining rows blank
 survey_child_out$chisq_p <- ""
 survey_child_out$chisq_p[1] <- round(chisq_child$p.value, 4)
 
@@ -182,7 +182,7 @@ write.csv(survey_child_out, "result_step1_wave_offspring.csv",
           row.names = FALSE, fileEncoding = "UTF-8")
 cat("✓ result_step1_wave_offspring.csv\n")
 
-# --- CSV 5：亲代波次分层患病率 ---
+# --- CSV 5: Parent prevalence by survey wave ---
 survey_parent_long <- as.data.frame(survey_parent_tab, stringsAsFactors = FALSE)
 colnames(survey_parent_long) <- c("wave", "tori_status", "count")
 survey_parent_pct  <- as.data.frame(

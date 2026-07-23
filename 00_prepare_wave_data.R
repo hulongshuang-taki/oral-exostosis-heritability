@@ -11,7 +11,7 @@ if (!all(required_cols %in% colnames(df))) {
   stop("缺少必要列：", paste(setdiff(required_cols, colnames(df)), collapse=", "))
 }
 
-# ====== 阶段1：剔除跨波次错配 ======
+# ====== Stage 1: Remove cross-wave mismatches ======
 cat("\n=== 阶段1：按波次过滤 ===\n")
 df_wave_matched <- df[df$survey_child == df$survey_parent, ]
 n_removed <- nrow(df) - nrow(df_wave_matched)
@@ -22,7 +22,7 @@ cat(sprintf("过滤前：%d，过滤后：%d，剔除跨波次：%d (%.1f%%)\n",
 df_mismatch <- df[df$survey_child != df$survey_parent, ]
 write.csv(df_mismatch, "result_wave_mismatch_removed.csv", row.names = FALSE)
 
-# ====== 阶段1.5：诊断重复数量 ======
+# ====== Stage 1.5: Diagnose duplicate counts ======
 pair_key_wm    <- paste(df_wave_matched$id_child, df_wave_matched$id_parent, sep="_")
 pair_counts_wm <- table(pair_key_wm)
 cat("\n=== 阶段1后：重复分布 ===\n")
@@ -35,7 +35,7 @@ if (max(pair_counts_wm) > 2) {
   cat("警告：存在出现次数>2的关系，请检查！\n")
 }
 
-# ====== 阶段2：以Wave2为准合并 ======
+# ====== Stage 2: Merge records using Wave 2 as the reference ======
 cat("\n=== 阶段2：同波次重复合并（Wave2优先策略）===\n")
 cat("策略：有Wave2用Wave2；只有Wave1用Wave1；逆转（Wave1阳→Wave2阴）判为阴性\n")
 
@@ -47,16 +47,16 @@ other_cols <- setdiff(colnames(df_wave_matched),
 cat("骨隆起合并列：", paste(tori_cols, collapse=", "), "\n")
 cat("年龄合并列：",   paste(age_cols,  collapse=", "), "\n")
 
-# 确认Wave1/Wave2的实际字符串
+# Confirm the actual strings used for Wave 1 and Wave 2
 cat("\nsurvey_child实际取值（确认Wave标签）：\n")
 print(table(df_wave_matched$survey_child, useNA="always"))
-# ⚠️ 根据上面输出确认，默认如下：
+# Confirm these values using the output above; defaults are shown below:
 WAVE1_LABEL <- "1次"
 WAVE2_LABEL <- "2次"
 POS_LABEL   <- "1. あり"
 NEG_LABEL   <- "0. なし"
 
-# Wave2优先合并函数
+# Merge function that prioritizes Wave 2
 merge_tori_wave2 <- function(vals, surveys,
                               wave2_label = WAVE2_LABEL,
                               pos_label   = POS_LABEL,
@@ -65,13 +65,13 @@ merge_tori_wave2 <- function(vals, surveys,
 
   w2_idx <- which(surveys == wave2_label)
 
-  # 有Wave2：直接用Wave2的值
+  # If Wave 2 is available, use its value directly
   if (length(w2_idx) > 0) {
     w2_val <- vals[w2_idx[1]]
     if (!is.na(w2_val)) return(w2_val)
   }
 
-  # 没有Wave2（只有Wave1）：用Wave1的值
+  # If Wave 2 is unavailable (Wave 1 only), use the Wave 1 value
   w1_val <- vals[!is.na(vals)][1]
   return(w1_val)
 }
@@ -85,12 +85,12 @@ df_unique <- df_wave_matched[!(pair_key_wm %in% dup_keys_wm), ]
 df_dup    <- df_wave_matched[pair_key_wm %in% dup_keys_wm, ]
 key_dup   <- paste(df_dup$id_child, df_dup$id_parent, sep="_")
 
-# 统计各类情况
-n_w2_pos    <- 0  # Wave2阳（含新发）
-n_w2_neg    <- 0  # Wave2阴
-n_reversal  <- 0  # 逆转（Wave1阳→Wave2阴）
-n_incident  <- 0  # 新发（Wave1阴→Wave2阳）
-n_w1_only   <- 0  # 只有Wave1
+# Count each type of record
+n_w2_pos    <- 0  # Wave 2 positive (including incident cases)
+n_w2_neg    <- 0  # Wave 2 negative
+n_reversal  <- 0  # Reversal (Wave 1 positive -> Wave 2 negative)
+n_incident  <- 0  # Incident case (Wave 1 negative -> Wave 2 positive)
+n_w1_only   <- 0  # Wave 1 only
 
 merged_list <- vector("list", length(unique(key_dup)))
 names(merged_list) <- unique(key_dup)
@@ -99,7 +99,7 @@ for (k in unique(key_dup)) {
   rows       <- df_dup[key_dup == k, ]
   merged_row <- rows[1, ]
 
-  # 骨隆起列：Wave2优先
+  # Oral exostosis columns: prioritize Wave 2
   for (col in tori_cols) {
     vals    <- rows[[col]]
     surveys <- rows$survey_child
@@ -109,7 +109,7 @@ for (k in unique(key_dup)) {
     w1_val <- if (length(w1_idx) > 0) vals[w1_idx[1]] else NA
     w2_val <- if (length(w2_idx) > 0) vals[w2_idx[1]] else NA
 
-    # 统计（只在tori_child列统计，避免重复计数）
+    # Count using tori_child only to avoid double counting
     if (col == tori_cols[1]) {
       if (!is.na(w2_val)) {
         if (w2_val == POS_LABEL) n_w2_pos <- n_w2_pos + 1
@@ -128,16 +128,16 @@ for (k in unique(key_dup)) {
     merged_row[[col]] <- merge_tori_wave2(vals, surveys)
   }
 
-  # 年龄列：取较大值（等价于Wave2的年龄）
+  # Age columns: use the larger value (equivalent to the Wave 2 age)
   for (col in age_cols) {
     merged_row[[col]] <- safe_max_numeric(rows[[col]])
   }
 
-  # survey列标记为merged
+  # Mark the survey column as merged
   merged_row$survey_child  <- "merged"
   merged_row$survey_parent <- "merged"
 
-  # 其余列一致性检查
+  # Check consistency across the remaining columns
   for (col in other_cols) {
     vals <- unique(rows[[col]])
     if (length(vals) > 1) {
@@ -152,7 +152,7 @@ for (k in unique(key_dup)) {
 df_merged <- do.call(rbind, merged_list)
 rownames(df_merged) <- NULL
 
-# 拼回完整数据集
+# Reassemble the complete data set
 df_final <- rbind(df_unique, df_merged)
 rownames(df_final) <- NULL
 

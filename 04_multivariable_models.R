@@ -1,16 +1,16 @@
 # Multivariable logistic regression and stratified analyses.
 # Input: df_final_corrected.csv
 
-# ① 读取数据
+# 1. Read the data
 df <- read.csv("df_final_corrected.csv",
                fileEncoding = "UTF-8", stringsAsFactors = FALSE)
 cat("总行数：", nrow(df), "\n")
 
-# ② 强制重建所有binary变量
+# 2. Rebuild all binary variables
 df$tori_child_bin  <- as.integer(df$tori_child  == "1. あり")
 df$tori_parent_bin <- as.integer(df$tori_parent == "1. あり")
-df$sex_child_bin   <- as.integer(df$sex_child   == "F")   # F=1, M=0（ref=男性）
-df$relation_bin    <- as.integer(df$relation    == "母")  # 母=1, 父=0
+df$sex_child_bin   <- as.integer(df$sex_child   == "F")   # F = 1, M = 0 (reference: male)
+df$relation_bin    <- as.integer(df$relation    == "母")  # Mother = 1, father = 0
 
 df$pair_type <- paste(
   ifelse(df$relation  == "母", "Mother", "Father"),
@@ -18,30 +18,28 @@ df$pair_type <- paste(
   sep = "-"
 )
 
-# ③ survey wave编码
-# 先打印实际取值确认
+# 3. Encode the survey wave
+# Print the actual values first for verification
 cat("\nsurvey_child实际取值：\n")
 print(table(df$survey_child, useNA = "always"))
 
-# 【需确认】根据上方输出修改这一行的匹配值
-# 常见情况：
-#   "1次調査" / "2次調査"        → c("2次調査")
-#   "1次" / "2次" / "merged"    → c("2次", "merged")
-#   "一次" / "二次"              → c("二次")
-WAVE2_VALUES <- c("2次調査")  # ← 根据实际取值修改这里
+# Verify and update the matching values on this line using the output above
+# Common cases include full survey labels, numeric wave labels (with an optional
+# "merged" category), and written-out wave labels. Use the exact Wave 2 value.
+WAVE2_VALUES <- c("2次調査")  # Update this value to match the actual data
 
 df$survey_child_bin <- as.integer(df$survey_child %in% WAVE2_VALUES)
 cat("survey_child_bin编码结果（0=Wave1, 1=Wave2）：\n")
 print(table(df$survey_child, df$survey_child_bin, useNA = "always"))
 
-# ④ 编码确认
+# 4. Verify the coding
 cat("\n--- 编码确认 ---\n")
 cat("tori_child_bin:\n")
 print(table(df$tori_child, df$tori_child_bin, useNA = "always"))
 cat("tori_parent_bin:\n")
 print(table(df$tori_parent, df$tori_parent_bin, useNA = "always"))
 
-# ⑤ 完整案例筛选
+# 5. Select complete cases
 vars_needed <- c("tori_child_bin", "tori_parent_bin",
                  "age_child", "age_parent", "sex_child_bin", "survey_child_bin")
 na_counts <- sapply(df[vars_needed], function(x) sum(is.na(x)))
@@ -52,11 +50,11 @@ cat(sprintf("\n完整案例：%d / %d（%.1f%%）\n",
             nrow(df_complete), nrow(df),
             nrow(df_complete) / nrow(df) * 100))
 
-# ⑥ 四个嵌套模型
-# M0：粗OR
-# M1：+ 子代年龄 + 子代性别
-# M2：+ 亲代年龄（主模型，论文用）
-# M3：+ survey wave（用于判断是否需要纳入，不作为主模型）
+# 6. Four nested models
+# M0: crude OR
+# M1: + offspring age + offspring sex
+# M2: + parent age (primary model for the manuscript)
+# M3: + survey wave (used to assess inclusion, not as the primary model)
 cat("\n--- 构建模型 ---\n")
 glm_m0 <- glm(tori_child_bin ~ tori_parent_bin,
               data = df_complete, family = binomial())
@@ -68,7 +66,7 @@ glm_m3 <- glm(tori_child_bin ~ tori_parent_bin + age_child + sex_child_bin + age
                 survey_child_bin,
               data = df_complete, family = binomial())
 
-# 亲代OR变化
+# Change in the parent OR
 or_progression <- sapply(list(glm_m0, glm_m1, glm_m2, glm_m3),
                          function(m) round(exp(coef(m)["tori_parent_bin"]), 3))
 cat("\n亲代骨隆起OR变化：\n")
@@ -77,7 +75,7 @@ cat(sprintf("  M1 + 子代年龄/性别         : %.3f\n", or_progression[2]))
 cat(sprintf("  M2 + 亲代年龄（主模型）    : %.3f\n", or_progression[3]))
 cat(sprintf("  M3 + survey wave           : %.3f\n", or_progression[4]))
 
-# M3中wave效应（判断用）
+# Wave effect in M3 (for model-selection assessment)
 cat("\n--- M3 survey wave效应（判断是否纳入）---\n")
 coef_m3 <- summary(glm_m3)$coefficients
 or_m3   <- exp(coef(glm_m3))
@@ -89,7 +87,7 @@ cat(sprintf("Survey wave aOR = %.3f (95%% CI: %.3f–%.3f), p = %.4f\n",
             coef_m3["survey_child_bin", 4]))
 cat("→ p>0.05且AIC不降低则最终模型用M2；否则改用M3\n")
 
-# ⑦ 主模型（M2）详细结果
+# 7. Detailed results for the primary model (M2)
 cat("\n--- 主模型M2详细结果 ---\n")
 coef_m2 <- summary(glm_m2)$coefficients
 or_m2   <- exp(coef(glm_m2))
@@ -116,7 +114,7 @@ cat(sprintf("\n【核心】亲代骨隆起 aOR = %.3f (95%% CI: %.3f–%.3f), p 
             result_m2$aOR[1], result_m2$CI_low[1],
             result_m2$CI_high[1], result_m2$p_value[1]))
 
-# ⑧ 四种亲子对分层aOR
+# 8. Stratified aORs for the four parent-offspring pair types
 cat("\n--- 分层aOR ---\n")
 pair_types <- c("Mother-Daughter", "Mother-Son", "Father-Daughter", "Father-Son")
 result_stratified_df <- do.call(rbind, lapply(pair_types, function(pt) {
@@ -140,7 +138,7 @@ result_stratified_df <- do.call(rbind, lapply(pair_types, function(pt) {
 }))
 rownames(result_stratified_df) <- NULL
 
-# ⑨ 模型拟合优度
+# 9. Model goodness of fit
 nagelkerke_r2 <- function(model) {
   n      <- nrow(model$model)
   log_L0 <- -model$null.deviance / 2
@@ -170,7 +168,7 @@ or_prog_df <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# ⑩ 导出
+# 10. Export results
 write.csv(result_m2,            "result_step5_main_model.csv",      row.names=FALSE, fileEncoding="UTF-8")
 write.csv(or_prog_df,           "result_step5_or_progression.csv",   row.names=FALSE, fileEncoding="UTF-8")
 write.csv(result_stratified_df, "result_step5_stratified_aOR.csv",   row.names=FALSE, fileEncoding="UTF-8")
